@@ -1,10 +1,14 @@
 import json
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 from codec.ncm_codec import NCMCodec
 
+"""
+进度回调类型注解：目前进度，总进度，状态信息
+"""
+ProgressCallback = Callable[[int, int, str], None]
 
 class DecryptionSession:
     def __init__(self, ncm_file_path: str):
@@ -19,6 +23,7 @@ class DecryptionSession:
         self._metadata_offset: int = 142
         self._cover_offset: Optional[int] = None
         self._audio_offset: Optional[int] = None
+        self._audio_size: Optional[int] = None
 
         self._pre_check()
 
@@ -80,6 +85,7 @@ class DecryptionSession:
             self._cover_bytes = f.read(cover_length)
 
             self._audio_offset = f.tell()
+            self._audio_size = self.file_size - self._audio_offset
 
     def preview(self):
         self._extract_metadata()
@@ -100,8 +106,57 @@ class DecryptionSession:
 
         return decrypted_audio_bytes
 
+    def decrypt_with_chunk(self, chunk_size: int = 1024 * 1024,
+                           progress_callback: Optional[ProgressCallback] = None) -> Optional[bytes]:
+        if self._audio_offset is None:
+            self.preview()
+
+        if self._rc4_key is None:
+            self._extract_key()
+
+        decrypted_audio = bytearray()
+        processed_size = 0
+        total_size = self._audio_size
+
+        with open(self.file_path, "rb") as f:
+            f.seek(self._audio_offset)
+
+            if progress_callback:
+                progress_callback(processed_size, total_size, "开始任务")
+
+            while True:
+                encrypted_chunk = f.read(chunk_size)
+                if not encrypted_chunk:
+                    break
+
+                decrypted_chunk = NCMCodec.decrypt_audio(encrypted_chunk, self._rc4_key)
+                decrypted_audio.extend(decrypted_chunk)
+
+                processed_size += len(decrypted_chunk)
+
+                if progress_callback:
+                    current = min(processed_size, total_size)
+                    progress_callback(current, total_size,
+                                      f"已处理 {current/1024/1024:.2f}MB / {total_size/1024/1024:.2f}MB")
+
+            if progress_callback:
+                progress_callback(total_size, total_size, "任务完成")
+
+            return bytes(decrypted_audio)
+
     def export(self, output_path: str):
         decrypted_audio_bytes = self.decrypt()
+
+        try:
+            with open(output_path, "wb") as f:
+                f.write(decrypted_audio_bytes)
+        except (IOError, OSError) as e:
+            raise IOError(f"导出音频失败：{str(e)}")
+
+    def export_with_chunk(self, output_path: str,
+                          chunk_size: int = 1024 * 1024,
+                          progress_callback: Optional[ProgressCallback] = None):
+        decrypted_audio_bytes = self.decrypt_with_chunk(chunk_size, progress_callback)
 
         try:
             with open(output_path, "wb") as f:
@@ -129,3 +184,8 @@ if __name__ == "__main__":
 
     output_path = "test.mp3"
     session.export(output_path)
+
+    def print_progress(current, total, msg):
+        print(msg)
+
+    session.decrypt_with_chunk(progress_callback=print_progress)
