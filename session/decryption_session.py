@@ -1,9 +1,10 @@
-import json
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Callable
 
 from codec.ncm_codec import NCMCodec
+from domain.exceptions import NCMFileValidationException, NCMExportException
+from domain.models import NCMMetadata
 
 """
 进度回调类型注解：目前进度，总进度，状态信息
@@ -17,7 +18,7 @@ class DecryptionSession:
         self.file_size: int = os.path.getsize(self.file_path)
 
         self._rc4_key: Optional[bytes] = None
-        self._metadata: Optional[Dict] = None
+        self._metadata: Optional[NCMMetadata] = None
         self._cover_bytes: Optional[bytes] = None
         self._rc4_key_offset: int = 10
         self._metadata_offset: int = 142
@@ -29,19 +30,19 @@ class DecryptionSession:
 
     def _pre_check(self):
         if not os.path.isfile(self.file_path):
-            raise FileNotFoundError(f"目标文件不存在：{self.file_path}")
+            raise NCMFileValidationException(f"目标文件不存在：{self.file_path}")
 
         try:
             with open(self.file_path, "rb") as f:
                 if not NCMCodec.validate_file(f):
                     raise IOError(f"目标文件不可读：{self.file_path}")
         except (IOError, OSError) as e:
-            raise e
+            raise NCMFileValidationException(str(e))
 
         with open(self.file_path, "rb") as f:
             header_bytes = f.read(8)
             if not NCMCodec.verify_format(header_bytes):
-                raise ValueError(f"文件不是合法的NCM格式：{self.file_path}")
+                raise NCMFileValidationException(f"文件不是合法的NCM格式：{self.file_path}")
 
     def _extract_key(self):
         if self._rc4_key is not None:
@@ -64,7 +65,9 @@ class DecryptionSession:
 
             encrypted_metadata_bytes = f.read(metadata_length)
 
-            self._metadata = NCMCodec.decrypt_metadata(encrypted_metadata_bytes)
+            metadata_dic = NCMCodec.decrypt_metadata(encrypted_metadata_bytes)
+            metadata = NCMMetadata.load_from_dict(metadata_dic)
+            self._metadata = metadata
 
             self._cover_offset = self._metadata_offset + 4 + metadata_length
 
@@ -151,7 +154,7 @@ class DecryptionSession:
             with open(output_path, "wb") as f:
                 f.write(decrypted_audio_bytes)
         except (IOError, OSError) as e:
-            raise IOError(f"导出音频失败：{str(e)}")
+            raise NCMExportException(f"导出音频失败：{str(e)}")
 
     def export_with_chunk(self, output_path: str,
                           chunk_size: int = 1024 * 1024,
@@ -162,9 +165,9 @@ class DecryptionSession:
             with open(output_path, "wb") as f:
                 f.write(decrypted_audio_bytes)
         except (IOError, OSError) as e:
-            raise IOError(f"导出音频失败：{str(e)}")
+            raise NCMExportException(f"导出音频失败：{str(e)}")
 
-    def get_metadata(self) -> Dict[str, Any]:
+    def get_metadata(self) -> NCMMetadata:
         if self._metadata is None:
             self.preview()
         return self._metadata
@@ -180,7 +183,7 @@ if __name__ == "__main__":
     session = DecryptionSession(file_path)
 
     session.preview()
-    print(json.dumps(session.get_metadata(), indent=2))
+    print(session.get_metadata())
 
     output_path = "test.mp3"
     session.export(output_path)
