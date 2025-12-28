@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.14-blue.svg?style=flat-square&logo=python&logoColor=white" alt="Python Version">
   <img src="https://img.shields.io/badge/GUI-PySide6-green.svg?style=flat-square&logo=qt&logoColor=white" alt="PySide6">
-  <img src="https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey.svg?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/Platform-Windows%20-lightgrey.svg?style=flat-square" alt="Platform">
 </p>
 
 ---
