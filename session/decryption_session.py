@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from typing import Optional, Callable
 
+import mutagen.id3 as id3
+
 from codec.ncm_codec import NCMCodec
 from domain.exceptions import NCMFileValidationException, NCMExportException
 from domain.models import NCMMetadata
@@ -90,6 +92,35 @@ class DecryptionSession:
             self._audio_offset = f.tell()
             self._audio_size = self.file_size - self._audio_offset
 
+    def _write_cover_to_file(self, output_path: str):
+        """
+        将封面信息写入文件，目前仅支持mp3
+        """
+        try:
+            # 加载ID3标签
+            try:
+                tags = id3.ID3(output_path)
+            except id3.error:
+                tags = id3.ID3()
+
+            cover_bytes = self._cover_bytes
+
+            if cover_bytes:
+                tags.add(
+                    id3.APIC(
+                        encoding=3,
+                        mime="image/jpeg",
+                        type=3,
+                        desc='Cover',
+                        data=cover_bytes
+                    )
+                )
+
+                tags.save(output_path)
+        except Exception as e:
+            raise IOError(str(e))
+
+
     def preview(self):
         self._extract_metadata()
         self._extract_cover()
@@ -153,6 +184,7 @@ class DecryptionSession:
         try:
             with open(output_path, "wb") as f:
                 f.write(decrypted_audio_bytes)
+            self._write_cover_to_file(output_path)
         except (IOError, OSError) as e:
             raise NCMExportException(f"导出音频失败：{str(e)}")
 
@@ -164,6 +196,7 @@ class DecryptionSession:
         try:
             with open(output_path, "wb") as f:
                 f.write(decrypted_audio_bytes)
+            self._write_cover_to_file(output_path)
         except (IOError, OSError) as e:
             raise NCMExportException(f"导出音频失败：{str(e)}")
 
